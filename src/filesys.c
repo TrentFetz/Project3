@@ -127,9 +127,35 @@ void change_directory(const char* dirname) {
 
 // Listing the directories
 void list_directory() {
-    // Implement logic to list directory contents
-    // Print names of directories within the current working directory
-    // Include "." and ".." directories
+    // Setting up basic variables
+    uint32_t cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
+    uint8_t *buffer = malloc(cluster_size);
+    if (!buffer) {
+        perror("Memory allocation failed");
+        return;
+    }
+
+    // Setting up data management for directories
+    uint32_t first_data_sector = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+    uint32_t first_sector_of_cluster = ((BootBlock.BPB_RootClus - 2) * BootBlock.BPB_SecPerClus) + first_data_sector;
+    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+    fread(buffer, cluster_size, 1, imgFile);
+
+    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+        dentry_t *entry = (dentry_t *)(buffer + i);
+        if (entry->DIR_Name[0] == 0x00) // No more entries
+            break;
+        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+            continue;
+
+        // Check attribute if it's a directory or not
+        if (entry->DIR_Attr & 0x10) { // 0x10 is the directory attribute
+            printf("%.11s\n", entry->DIR_Name);
+        }
+    }
+
+    free(buffer);
+
     printf("Listing directory contents\n");
 }
 
