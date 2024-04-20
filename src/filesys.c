@@ -103,24 +103,45 @@ void getInfo(){
     printf("BS_FilSysType: %.8s\n", BootBlock.BS_FilSysType);
 }
 
+void exitProgram() {
+    // close the image file
+    if (imgFile != NULL) {
+        fclose(imgFile);
+        imgFile = NULL;
+    }
+    // free any other resources here ...
+    exit(0);
+}
+
 // you can give it another name
 // fill the parameters
 void main_process() {
+    char command[256];
     while (1) {
-        // 1. get cmd from input.
-        // you can use the parser provided in Project1
+        printf("[FAT32Shell]>");
+        fgets(command, 256, stdin);
 
-        // if cmd is "exit" break;
-        // else if cmd is "cd" process_cd();
-        // else if cmd is "ls" process_ls();
-        // ...
+        // remove trailing newline
+        command[strcspn(command, "\n")] = 0;
+
+        if (strcmp(command, "exit") == 0)
+            exitProgram();
+        else if (strcmp(command, "info") == 0)
+            getInfo();
+        else
+            printf("Invalid command.\n");
     }
 }
 
 int main(int argc, char const *argv[])
 {
 
-    mount_fat32();
+    if (argc != 2) {
+        printf("Usage: filesys <FAT32 ISO>\n");
+        return 1;
+    }
+    mount_fat32(argv[1]);
+    main_process();
 
     getInfo();
 
