@@ -5,7 +5,6 @@
 #include <string.h>
 #include <inttypes.h>
 
-
 typedef struct __attribute__((packed)) BPB {
     // below 36 bytes are the main bpb
 	uint8_t BS_jmpBoot[3];
@@ -52,6 +51,8 @@ typedef struct __attribute__((packed)) directory_entry {
 } dentry_t;
 
 
+// Part 1: Mount the Image File
+
 FILE *imgFile;
 bpb_t BootBlock;
 
@@ -63,17 +64,15 @@ bpb_t BootBlock;
 // the opened files
 // other data structures and global variables you need
 
-// you can give it another name
-// fill the parameters
-void mount_fat32() {
-    imgFile = fopen("fat32.img", "rb+");
+void mount_fat32(const char *imgPath) {
+    imgFile = fopen(imgPath, "rb+");
     if (imgFile == NULL) {
         perror("Error opening file");
         exit(EXIT_FAILURE);
     }
     fread(&BootBlock, sizeof(BootBlock), 1, imgFile);
-
 }
+
 
 void getInfo(){
     printf("BS_jmpBoot: %02X %02X %02X\n",BootBlock.BS_jmpBoot[0], BootBlock.BS_jmpBoot[1], BootBlock.BS_jmpBoot[2]);
@@ -134,6 +133,8 @@ void main_process() {
             printf("Invalid command.\n");
     }
 }
+
+// Part 2: Navigation
 
 int main(int argc, char const *argv[])
 {
