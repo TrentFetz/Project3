@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
+#include <inttypes.h>
 
 
 typedef struct __attribute__((packed)) BPB {
