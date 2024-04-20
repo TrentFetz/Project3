@@ -5,6 +5,8 @@
 #include <string.h>
 #include <inttypes.h>
 
+// Variable Declarations 
+
 typedef struct __attribute__((packed)) BPB {
     // below 36 bytes are the main bpb
 	uint8_t BS_jmpBoot[3];
@@ -21,7 +23,6 @@ typedef struct __attribute__((packed)) BPB {
 	uint16_t BPB_NumHeads;
 	uint32_t BPB_HiddSec;
 	uint32_t BPB_TotSec32;
-
     uint32_t BPB_FATSz32;
     uint16_t BPB_ExtFlags;
     uint16_t BPB_FSVer;
@@ -36,7 +37,6 @@ typedef struct __attribute__((packed)) BPB {
     char BS_VolLab[11]; 
     char BS_FilSysType[8];
 } bpb_t;
-
 
 typedef struct __attribute__((packed)) directory_entry {
     char DIR_Name[11];
@@ -56,14 +56,7 @@ typedef struct __attribute__((packed)) directory_entry {
 FILE *imgFile;
 bpb_t BootBlock;
 
-
-// other data structure, global variables, etc. define them in need.
-// e.g., 
-// the opened fat32.img file
-// the current working directory
-// the opened files
-// other data structures and global variables you need
-
+// Opening the FAT32 file
 void mount_fat32(const char *imgPath) {
     imgFile = fopen(imgPath, "rb+");
     if (imgFile == NULL) {
@@ -73,7 +66,7 @@ void mount_fat32(const char *imgPath) {
     fread(&BootBlock, sizeof(BootBlock), 1, imgFile);
 }
 
-
+// Getting FAT32 File info
 void getInfo(){
     printf("BS_jmpBoot: %02X %02X %02X\n",BootBlock.BS_jmpBoot[0], BootBlock.BS_jmpBoot[1], BootBlock.BS_jmpBoot[2]);
     printf("BS_OEMName: %.8s\n", BootBlock.BS_OEMName);
@@ -104,6 +97,7 @@ void getInfo(){
     printf("BS_FilSysType: %.8s\n", BootBlock.BS_FilSysType);
 }
 
+// Exiting the program
 void exitProgram() {
     // close the image file
     if (imgFile != NULL) {
@@ -114,8 +108,33 @@ void exitProgram() {
     exit(0);
 }
 
-// you can give it another name
-// fill the parameters
+// Part 2: Navigation
+
+// Defining Directory Structure
+typedef struct directory_node {
+    dentry_t entry;
+    struct directory_node* next;
+} dir_node_t;
+
+// Changing the directory
+void change_directory(const char* dirname) {
+    // Implement logic to change directory
+    // Check if the directory exists and is valid
+    // Update current working directory state
+    // Print error message if directory not found
+    printf("Changing directory to %s\n", dirname);
+}
+
+// Listing the directories
+void list_directory() {
+    // Implement logic to list directory contents
+    // Print names of directories within the current working directory
+    // Include "." and ".." directories
+    printf("Listing directory contents\n");
+}
+
+// Main Functions
+
 void main_process() {
     char command[256];
     while (1) {
@@ -129,12 +148,14 @@ void main_process() {
             exitProgram();
         else if (strcmp(command, "info") == 0)
             getInfo();
+        else if (strncmp(command, "cd ", 3) == 0)
+            change_directory(command + 3); // Skip "cd "
+        else if (strcmp(command, "ls") == 0)
+            list_directory();
         else
             printf("Invalid command.\n");
     }
 }
-
-// Part 2: Navigation
 
 int main(int argc, char const *argv[])
 {
