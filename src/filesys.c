@@ -222,6 +222,122 @@ void list_directory() {
     free(buffer);
 }
 
+// Part 3: Create
+
+// Helper function to check if a directory or file with the given name already exists
+bool check_exists(const char *name) {
+    uint32_t cluster_size;
+    uint8_t *buffer = read_current_directory_cluster(&cluster_size);
+    if (!buffer) {
+        return true; // Error handling in the read_current_directory_cluster function
+    }
+
+    dentry_t *entry = NULL;
+    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+        entry = (dentry_t *)(buffer + i);
+        if (entry->DIR_Name[0] == 0x00) // No more entries
+            break;
+        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+            continue;
+
+        char formatted_name[12];
+        format_dirname(entry->DIR_Name, formatted_name);
+
+        if (strcasecmp(formatted_name, name) == 0) {
+            free(buffer);
+            return true; // Found a matching directory or file
+        }
+    }
+
+    free(buffer);
+    return false; // No existing directory or file matches the given name
+}
+
+// Create a new directory with the given name
+void create_directory(const char *dirname) {
+    if (check_exists(dirname)) {
+        printf("Error: Directory '%s' already exists.\n", dirname);
+        return;
+    }
+
+    // Create the directory entry for the new directory
+    dentry_t new_dir_entry;
+    memset(&new_dir_entry, 0, sizeof(dentry_t));
+    snprintf(new_dir_entry.DIR_Name, 12, "%.11s", dirname);
+    new_dir_entry.DIR_Attr = 0x10; // Directory attribute
+    new_dir_entry.DIR_FstClusHI = 0;
+    new_dir_entry.DIR_FstClusLO = 0;
+    new_dir_entry.DIR_FileSize = 0;
+
+    // Write the new directory entry to the current directory cluster
+    uint32_t cluster_size;
+    uint8_t *buffer = read_current_directory_cluster(&cluster_size);
+    if (!buffer) {
+        return; // Error handling in the read_current_directory_cluster function
+    }
+
+    // Find the first available slot in the current directory cluster
+    dentry_t *entry = NULL;
+    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+        entry = (dentry_t *)(buffer + i);
+        if (entry->DIR_Name[0] == 0x00 || entry->DIR_Name[0] == 0xE5) {
+            memcpy(entry, &new_dir_entry, sizeof(dentry_t));
+            break;
+        }
+    }
+
+    // Write back the modified buffer to the image file
+    uint32_t first_sector_of_cluster = ((current_cluster - 2) * BootBlock.BPB_SecPerClus) + (BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32));
+    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+    fwrite(buffer, cluster_size, 1, imgFile);
+
+    free(buffer);
+
+    printf("Directory '%s' created successfully.\n", dirname);
+}
+
+// Create a new file with the given name
+void create_file(const char *filename) {
+    if (check_exists(filename)) {
+        printf("Error: File '%s' already exists.\n", filename);
+        return;
+    }
+
+    // Create the directory entry for the new file
+    dentry_t new_file_entry;
+    memset(&new_file_entry, 0, sizeof(dentry_t));
+    snprintf(new_file_entry.DIR_Name, 12, "%.11s", filename);
+    new_file_entry.DIR_Attr = 0x00; // File attribute
+    new_file_entry.DIR_FstClusHI = 0;
+    new_file_entry.DIR_FstClusLO = 0;
+    new_file_entry.DIR_FileSize = 0;
+
+    // Write the new file entry to the current directory cluster
+    uint32_t cluster_size;
+    uint8_t *buffer = read_current_directory_cluster(&cluster_size);
+    if (!buffer) {
+        return; // Error handling in the read_current_directory_cluster function
+    }
+
+    // Find the first available slot in the current directory cluster
+    dentry_t *entry = NULL;
+    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+        entry = (dentry_t *)(buffer + i);
+        if (entry->DIR_Name[0] == 0x00 || entry->DIR_Name[0] == 0xE5) {
+            memcpy(entry, &new_file_entry, sizeof(dentry_t));
+            break;
+        }
+    }
+
+    // Write back the modified buffer to the image file
+    uint32_t first_sector_of_cluster = ((current_cluster - 2) * BootBlock.BPB_SecPerClus) + (BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32));
+    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+    fwrite(buffer, cluster_size, 1, imgFile);
+
+    free(buffer);
+
+    printf("File '%s' created successfully.\n", filename);
+}
 
 // Main Functions
 
@@ -242,6 +358,10 @@ void main_process() {
             change_directory(command + 3); // Skip "cd "
         else if (strcmp(command, "ls") == 0)
             list_directory();
+        else if (strncmp(command, "mkdir ", 6) == 0)
+            create_directory(command + 6); // Skip "mkdir "
+        else if (strncmp(command, "creat ", 6) == 0)
+            create_file(command + 6); // Skip "creat "
         else
             printf("Invalid command.\n");
     }
@@ -249,23 +369,15 @@ void main_process() {
 
 int main(int argc, char const *argv[])
 {
-
+    // Open and mount FAT32 File
     if (argc != 2) {
         printf("Usage: filesys <FAT32 ISO>\n");
         return 1;
     }
     mount_fat32(argv[1]);
+
+    // Run main process
     main_process();
-
-    // 1. open the fat32.img
-
-    // 2. mount the fat32.img
-
-    // 3. main procees
-
-    // 4. close all opened files
-
-    // 5. close the fat32.img
 
     return 0;
 }
