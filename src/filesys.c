@@ -116,33 +116,63 @@ typedef struct directory_node {
     struct directory_node* next;
 } dir_node_t;
 
-// Changing the directory
-void change_directory(const char* dirname) {
-    // Implement logic to change directory
-    // Check if the directory exists and is valid
-    // Update current working directory state
-    // Print error message if directory not found
-
-    // Setting up basic variables
-    uint32_t cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
-    uint8_t *buffer = malloc(cluster_size);
+// Reads the content of the current directory cluster into a buffer
+uint8_t* read_current_directory_cluster(uint32_t* cluster_size) {
+    *cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
+    uint8_t *buffer = malloc(*cluster_size);
     if (!buffer) {
         perror("Memory allocation failed");
-        return;
+        return NULL;
     }
 
-    dentry_t *entry;
+    uint32_t first_data_sector = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+    uint32_t first_sector_of_cluster = ((BootBlock.BPB_RootClus - 2) * BootBlock.BPB_SecPerClus) + first_data_sector;
+    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+    fread(buffer, *cluster_size, 1, imgFile);
+    return buffer;
+}
+
+// Formats directory names from FAT32 to a more readable format
+void format_dirname(const char *DIR_Name, char *formatted_name) {
+    // Copy the directory name to formatted_name
+    snprintf(formatted_name, 12, "%.11s", DIR_Name);
+    
+    // Trim trailing spaces
+    int len = strlen(formatted_name);
+    while (len > 0 && formatted_name[len - 1] == ' ') {
+        formatted_name[len - 1] = '\0'; // Replace trailing space with null terminator
+        len--;
+    }
+}
+
+
+
+// Changing the directory
+void change_directory(const char* dirname) {
+    uint32_t cluster_size;
+    uint8_t *buffer = read_current_directory_cluster(&cluster_size);
+    if (!buffer) {
+        return; // Memory allocation failed, error handled in the helper function
+    }
+
     int found = 0;
+    dentry_t *entry = NULL;
     for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00) // No more entries
             break;
         if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
             continue;
-        if (entry->DIR_Attr & 0x10) { // Check if it is a directory
+        if (entry->DIR_Attr & 0x10) { // Directory attribute
             char formatted_name[12];
-            format_dirname(entry->DIR_Name, formatted_name); // Implement this to match FAT32 8.3 format
-            if (strcmp(formatted_name, dirname) == 0) {
+            format_dirname(entry->DIR_Name, formatted_name);
+
+            /* TESTING FLAG: 
+            printf("Comparing: '%s' with '%s'\n", formatted_name, dirname);
+            */
+            
+            // Compare ignoring case and trailing spaces
+            if (strcasecmp(formatted_name, dirname) == 0) {
                 found = 1;
                 break;
             }
@@ -150,55 +180,42 @@ void change_directory(const char* dirname) {
     }
 
     if (found) {
-        current_cluster = entry->DIR_FstClusHI << 16 | entry->DIR_FstClusLO;
+        uint32_t new_cluster = entry->DIR_FstClusHI << 16 | entry->DIR_FstClusLO;
+        // Update current_cluster globally or using a shared variable
+        uint32_t current_cluster = new_cluster;
+        printf("Changing directory to %s\n", dirname);
     } else {
         printf("Directory not found\n");
     }
 
-    // Handle special entries (`.` OR `..`)
-    if (strcmp(dirname, ".") == 0) {
-        // Stay in the current directory
-    } else if (strcmp(dirname, "..") == 0 && current_cluster != root_cluster) {
-        // Move to parent directory, requires keeping track of the parent directory’s cluster number
-    }
-
     free(buffer);
-    printf("Changing directory to %s\n", dirname);
 }
 
 // Listing the directories
 void list_directory() {
-    // Setting up basic variables
-    uint32_t cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
-    uint8_t *buffer = malloc(cluster_size);
+    uint32_t cluster_size;
+    uint8_t *buffer = read_current_directory_cluster(&cluster_size);
     if (!buffer) {
-        perror("Memory allocation failed");
-        return;
+        return; // Memory allocation failed, error handled in the helper function
     }
 
-    // Setting up data management for directories
-    uint32_t first_data_sector = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
-    uint32_t first_sector_of_cluster = ((BootBlock.BPB_RootClus - 2) * BootBlock.BPB_SecPerClus) + first_data_sector;
-    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
-    fread(buffer, cluster_size, 1, imgFile);
-
+    printf("Listing directory contents:\n");
     for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
         dentry_t *entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00) // No more entries
             break;
         if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
             continue;
-
-        // Check attribute if it's a directory or not
-        if (entry->DIR_Attr & 0x10) { // 0x10 is the directory attribute
-            printf("%.11s\n", entry->DIR_Name);
+        if (entry->DIR_Attr & 0x10) { // Directory attribute
+            char formatted_name[12];
+            format_dirname(entry->DIR_Name, formatted_name);
+            printf("%s\n", formatted_name);
         }
     }
 
     free(buffer);
-
-    printf("Listing directory contents\n");
 }
+
 
 // Main Functions
 
