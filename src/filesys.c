@@ -122,6 +122,47 @@ void change_directory(const char* dirname) {
     // Check if the directory exists and is valid
     // Update current working directory state
     // Print error message if directory not found
+
+    // Setting up basic variables
+    uint32_t cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
+    uint8_t *buffer = malloc(cluster_size);
+    if (!buffer) {
+        perror("Memory allocation failed");
+        return;
+    }
+
+    dentry_t *entry;
+    int found = 0;
+    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+        entry = (dentry_t *)(buffer + i);
+        if (entry->DIR_Name[0] == 0x00) // No more entries
+            break;
+        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+            continue;
+        if (entry->DIR_Attr & 0x10) { // Check if it is a directory
+            char formatted_name[12];
+            format_dirname(entry->DIR_Name, formatted_name); // Implement this to match FAT32 8.3 format
+            if (strcmp(formatted_name, dirname) == 0) {
+                found = 1;
+                break;
+            }
+        }
+    }
+
+    if (found) {
+        current_cluster = entry->DIR_FstClusHI << 16 | entry->DIR_FstClusLO;
+    } else {
+        printf("Directory not found\n");
+    }
+
+    // Handle special entries (`.` OR `..`)
+    if (strcmp(dirname, ".") == 0) {
+        // Stay in the current directory
+    } else if (strcmp(dirname, "..") == 0 && current_cluster != root_cluster) {
+        // Move to parent directory, requires keeping track of the parent directory’s cluster number
+    }
+
+    free(buffer);
     printf("Changing directory to %s\n", dirname);
 }
 
