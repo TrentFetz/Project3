@@ -53,6 +53,9 @@ typedef struct __attribute__((packed)) directory_entry {
     uint32_t DIR_FileSize;
 } dentry_t;
 
+char current_path[1024] = "/";  // Initially at the root directory.
+char volume_label[12] = "";     // To store the volume label extracted from BootBlock.
+
 // Variables for Part 2:
 // Define a global variable to store the current cluster of the working directory
 uint32_t current_cluster = 0; // Root cluster at the start
