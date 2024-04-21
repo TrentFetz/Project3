@@ -1,3 +1,5 @@
+// filesys.c
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,20 +12,20 @@
 // For Part 1
 typedef struct __attribute__((packed)) BPB {
     // below 36 bytes are the main bpb
-	uint8_t BS_jmpBoot[3];
-	char BS_OEMName[8];
-	uint16_t BPB_BytsPerSec;
-	uint8_t BPB_SecPerClus;
-	uint16_t BPB_RsvdSecCnt;
-	uint8_t BPB_NumFATs;
-	uint16_t BPB_RootEntCnt;
-	uint16_t BPB_TotSec16;
-	uint8_t BPB_Media;
-	uint16_t BPB_FATSz16;
-	uint16_t BPB_SecPerTrk;
-	uint16_t BPB_NumHeads;
-	uint32_t BPB_HiddSec;
-	uint32_t BPB_TotSec32;
+    uint8_t BS_jmpBoot[3];
+    char BS_OEMName[8];
+    uint16_t BPB_BytsPerSec;
+    uint8_t BPB_SecPerClus;
+    uint16_t BPB_RsvdSecCnt;
+    uint8_t BPB_NumFATs;
+    uint16_t BPB_RootEntCnt;
+    uint16_t BPB_TotSec16;
+    uint8_t BPB_Media;
+    uint16_t BPB_FATSz16;
+    uint16_t BPB_SecPerTrk;
+    uint16_t BPB_NumHeads;
+    uint32_t BPB_HiddSec;
+    uint32_t BPB_TotSec32;
     uint32_t BPB_FATSz32;
     uint16_t BPB_ExtFlags;
     uint16_t BPB_FSVer;
@@ -44,8 +46,8 @@ typedef struct __attribute__((packed)) directory_entry {
     char DIR_Name[11];
     uint8_t DIR_Attr;
     char padding_1[8]; // DIR_NTRes, DIR_CrtTimeTenth, DIR_CrtTime, DIR_CrtDate, 
-                       // DIR_LstAccDate. Since these fields are not used in
-                       // Project 3, just define as a placeholder.
+                    // DIR_LstAccDate. Since these fields are not used in
+                    // Project 3, just define as a placeholder.
     uint16_t DIR_FstClusHI;
     char padding_2[4]; // DIR_WrtTime, DIR_WrtDate
     uint16_t DIR_FstClusLO;
