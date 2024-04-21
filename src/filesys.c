@@ -7,6 +7,7 @@
 
 // Variable Declarations 
 
+// For Part 1
 typedef struct __attribute__((packed)) BPB {
     // below 36 bytes are the main bpb
 	uint8_t BS_jmpBoot[3];
@@ -38,6 +39,7 @@ typedef struct __attribute__((packed)) BPB {
     char BS_FilSysType[8];
 } bpb_t;
 
+// For Part 1
 typedef struct __attribute__((packed)) directory_entry {
     char DIR_Name[11];
     uint8_t DIR_Attr;
@@ -49,6 +51,10 @@ typedef struct __attribute__((packed)) directory_entry {
     uint16_t DIR_FstClusLO;
     uint32_t DIR_FileSize;
 } dentry_t;
+
+// For Part 2
+// Define a global variable to store the current cluster of the working directory
+uint32_t current_cluster = 0; // Root cluster at the start
 
 
 // Part 1: Mount the Image File
@@ -64,6 +70,8 @@ void mount_fat32(const char *imgPath) {
         exit(EXIT_FAILURE);
     }
     fread(&BootBlock, sizeof(BootBlock), 1, imgFile);
+
+    current_cluster = BootBlock.BPB_RootClus; // For Part 2. assign current_cluster the value of the root cluster
 }
 
 // Getting FAT32 File info
@@ -126,7 +134,7 @@ uint8_t* read_current_directory_cluster(uint32_t* cluster_size) {
     }
 
     uint32_t first_data_sector = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
-    uint32_t first_sector_of_cluster = ((BootBlock.BPB_RootClus - 2) * BootBlock.BPB_SecPerClus) + first_data_sector;
+    uint32_t first_sector_of_cluster = ((current_cluster - 2) * BootBlock.BPB_SecPerClus) + first_data_sector;
     fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
     fread(buffer, *cluster_size, 1, imgFile);
     return buffer;
@@ -144,8 +152,6 @@ void format_dirname(const char *DIR_Name, char *formatted_name) {
         len--;
     }
 }
-
-
 
 // Changing the directory
 void change_directory(const char* dirname) {
@@ -170,7 +176,7 @@ void change_directory(const char* dirname) {
             /* TESTING FLAG: 
             printf("Comparing: '%s' with '%s'\n", formatted_name, dirname);
             */
-            
+
             // Compare ignoring case and trailing spaces
             if (strcasecmp(formatted_name, dirname) == 0) {
                 found = 1;
@@ -182,7 +188,7 @@ void change_directory(const char* dirname) {
     if (found) {
         uint32_t new_cluster = entry->DIR_FstClusHI << 16 | entry->DIR_FstClusLO;
         // Update current_cluster globally or using a shared variable
-        uint32_t current_cluster = new_cluster;
+        current_cluster = new_cluster;
         printf("Changing directory to %s\n", dirname);
     } else {
         printf("Directory not found\n");
@@ -250,8 +256,6 @@ int main(int argc, char const *argv[])
     }
     mount_fat32(argv[1]);
     main_process();
-
-    getInfo();
 
     // 1. open the fat32.img
 
