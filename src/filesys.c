@@ -393,22 +393,23 @@ void open_file(char* input){
 
     char filename[13];
     char flags[4];
-    sscanf(input, "%s %s", filename, flags);
+    sscanf(input, "%s %s", filename, flags);//seperate input
 
-    if(strcmp(flags,"-r") != 0 && strcmp(flags,"-w")!= 0 &&
+    if(strcmp(flags,"-r") != 0 && strcmp(flags,"-w")!= 0 &&//make sure flags are valid and present
         strcmp(flags, "-rw") != 0 && strcmp(flags, "-wr") != 0){
             printf("invalid mode: %s", flags);
             return;
     }
-    for(int i = 0; i <open_files_count; i++){
+
+    for(int i = 0; i <open_files_count; i++){//check to make sure file is not already open
         if(strncmp(open_files[i].entry.DIR_Name, filename, 11) == 0){
             printf("File alr open: %s\n",filename);
             return;
         }
     }
     uint32_t cluster_size;
-    uint8_t* buffer = read_current_directory_cluster(&cluster_size);
-    if(!buffer){
+    uint8_t* buffer = read_current_directory_cluster(&cluster_size);//read current directory
+    if(!buffer){//return if empty
         return;
     }
 
@@ -422,26 +423,27 @@ void open_file(char* input){
         char formatted_name[12];
         format_dirname(file_entry->DIR_Name, formatted_name);
         if(strcmp(formatted_name, filename) == 0 && !(file_entry->DIR_Attr & 0x10)){
-            file_found=true;
+            file_found=true;//file has been found
             break;
         }
     }
-    if(!file_found){
+    if(!file_found){//cant open file, prob doesnt exist
         printf("File not found:%s\n", filename);
         free(buffer);
         return;
     }
-    if(open_files_count>=MAX_OPEN_FILES){
+    if(open_files_count>=MAX_OPEN_FILES){//too many open, max is 32
         printf("Max files opened\n");
         free(buffer);
         return;
     }
+    //file successfully opened, increment counters, set it to open
     open_files[open_files_count].entry = *file_entry;
     strcpy(open_files[open_files_count].mode, flags);
     open_files[open_files_count].file_pos = 0;
     open_files_count++;
-    printf("File opened successfully: %s with falgs: %s\n", filename, flags);
-    free(buffer);
+    printf("File opened successfully: %s with flags: %s\n", filename, flags);
+    free(buffer);//reallocate space
 }
 
 void close_file(char* input){
@@ -450,7 +452,7 @@ void close_file(char* input){
         input++;
 
     char filename[13];
-    sscanf(input, "%s", filename);
+    sscanf(input, "%s", filename);//seperate input
 
     bool file_found = false;
 
@@ -458,36 +460,34 @@ void close_file(char* input){
         char formatted_name[12];
         format_dirname(open_files[i].entry.DIR_Name, formatted_name);
         if(strcmp(formatted_name, filename) == 0){
-            file_found=true;
+            file_found=true;//found the file
             break;
         }
     }
 
 
-    if(!file_found){
+    if(!file_found){//file not found, type or doesnt exist
         printf("File not found:%s\n", filename);
 
         return;
     }
     for(int y = 0; y<open_files_count-1;y++){
-        open_files[y] = open_files[y+1];
+        open_files[y] = open_files[y+1];//iterate through
     }
 
-
-
-    open_files_count--;
+    open_files_count--;//file found, close it out
     printf("file closed successfully: %s\n", filename);
 }
 
 
 void list_all(){
-    if(open_files_count == 0){
+    if(open_files_count == 0){//no files to list
         printf("No files to open currently.\n");
         return;
     }
 
     printf("active open files:\n");
-    for(int i = 0; i<open_files_count;i++){
+    for(int i = 0; i<open_files_count;i++){//iterate through the files, print mode and permissions and name
         char formatted_name[12];
         format_dirname(open_files[i].entry.DIR_Name, formatted_name);
         printf("%-11s\t%s\t%u\n", formatted_name, open_files[i].mode, open_files[i].file_pos);
@@ -498,9 +498,9 @@ void set_file_offset(char *input){
     char filename[13];
     int offset;
     char pos_str[10];
-    sscanf(input, "%s %d %s", filename, &offset, pos_str);
+    sscanf(input, "%s %d %s", filename, &offset, pos_str);//seperate input
 
-    int test;
+    int test;//get different options
     if(strcmp(pos_str, "SEEK_SET") == 0){
         test = SEEK_SET;
     }else if(strcmp(pos_str, "SEEK_CUR") ==0){
@@ -511,12 +511,13 @@ void set_file_offset(char *input){
         printf("Invalid choice: %s\n", pos_str);
         return;    
     }
+
     for(int i = 0; i <open_files_count; i++){
         char formatted_name[12];
-        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
+        format_dirname(open_files[i].entry.DIR_Name, formatted_name);//loop through opened files
         if(strcmp(formatted_name,filename) ==0){
             uint32_t new_pos;
-            switch(test){
+            switch(test){//change offset according to input
                 case SEEK_SET:
                     new_pos = offset;
                     break;
@@ -534,13 +535,74 @@ void set_file_offset(char *input){
                 printf("Error: pos out of bounds.\n");
                 return;
             }
-            open_files[i].file_pos = new_pos;
+            open_files[i].file_pos = new_pos;//successful
             printf("File pos updated: %s to %u\n", filename, new_pos);
             return;
         }
     }
     printf("File not open: %s\n", filename);
 }
+
+uint32_t calculate_file_offset(dentry_t entry){
+    uint32_t first_sector_of_cluster = ((entry.DIR_FstClusLO -2) * BootBlock.BPB_SecPerClus) + BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+    return first_sector_of_cluster * BootBlock.BPB_BytsPerSec;
+}
+
+void read_file(char *input){
+    char filename[13];
+    int size;
+    sscanf(input, "%s %d", filename, &size);//format the input
+
+    bool file_open = false;
+    int file_index = -1;
+
+    for(int i = 0; i < open_files_count; i++){//loop through opened files
+        char formatted_name[12];
+        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
+        if(strcmp(formatted_name, filename) == 0){
+            file_open=true;//file found
+            file_index = i;
+            break;
+        }
+    }
+    if(!file_open){
+        printf("Error: file not open on does not exist.\n" , filename);
+        return;
+    }
+    if(open_files[file_index].entry.DIR_Attr & 0x10){//invalid input
+        printf("Error: '%s' is a directory.\n", filename);
+        return;
+    }
+    if (strchr(open_files[file_index].mode, 'r') == NULL) {//invalid permissions
+        printf("Error: file not opened for reading.\n" ,filename);
+        return;
+    }
+
+    //open the file
+    uint32_t start_pos = open_files[file_index].file_pos;
+    uint32_t end_pos = start_pos + size;
+    if(end_pos > open_files[file_index].entry.DIR_FileSize){
+        end_pos = open_files[file_index].entry.DIR_FileSize;
+    }
+    //calculate appropriate offset
+    fseek(imgFile, calculate_file_offset(open_files[file_index].entry), SEEK_SET);
+    fseek(imgFile, start_pos, SEEK_CUR);
+
+    //current size of text
+    int read_size = end_pos - start_pos;
+    char *buffer = malloc(read_size);
+    if(buffer == NULL){//something happened?
+        perror("Mem alloc failed");
+        return;
+    }
+    fread(buffer, read_size, 1, imgFile);
+    printf("Data read: &.*s\n", read_size, buffer);
+
+    open_files[file_index].file_pos = end_pos;
+    free(buffer);
+}
+
+
 
 // ============================================================================
 // ============================================================================
@@ -576,8 +638,8 @@ void main_process() {
             list_all();
         else if(strncmp(command, "lseek ", 6) == 0)
             set_file_offset(command + 6);
-        // else if(strncmp(command, "read", 5) == 0)
-        //     open_file(command + 5);
+        else if(strncmp(command, "read ", 5) == 0)
+            open_file(command + 5);
         else
             printf("Invalid command.\n");
     }
