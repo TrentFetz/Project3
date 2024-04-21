@@ -61,6 +61,17 @@ char volume_label[12] = "";     // To store the volume label extracted from Boot
 // Define a global variable to store the current cluster of the working directory
 uint32_t current_cluster = 0; // Root cluster at the start
 
+// Variables for Part 3:
+typedef struct{
+    dentry_t entry;
+    uint32_t file_pos;
+    char mode[3];
+}open_file_t;
+
+#define MAX_OPEN_FILES 32
+open_file_t open_files[MAX_OPEN_FILES];
+int open_files_count=0;
+
 // ============================================================================
 // ============================================================================
 
@@ -373,6 +384,99 @@ void create_file(const char *filename) {
     printf("File '%s' created successfully.\n", filename);
 }
 
+// Part 4: Read
+void open_file(char* input){
+    while(*input == ' ')
+        input++;
+
+    char filename[13];
+    char flags[4];
+    sscanf(input, "%s %s", filename, flags);
+
+    if(strcmp(flags,"-r") != 0 && strcmp(flags,"-w")!= 0 &&
+        strcmp(flags, "-rw") != 0 && strcmp(flags, "-wr") != 0){
+            printf("invalid mode: %s", flags);
+            return;
+    }
+    for(int i = 0; i <open_files_count; i++){
+        if(strncmp(open_files[i].entry.DIR_Name, filename, 11) == 0){
+            printf("File alr open: %s\n",filename);
+            return;
+        }
+    }
+    uint32_t cluster_size;
+    uint8_t* buffer = read_current_directory_cluster(&cluster_size);
+    if(!buffer){
+        return;
+    }
+
+    bool file_found = false;
+    dentry_t *file_entry = NULL;
+    for(int i = 0; i< cluster_size; i+=sizeof(dentry_t)){
+        file_entry = (dentry_t *)(buffer + i);
+        if(file_entry->DIR_Name[0] == 0x00)break;
+        if(file_entry->DIR_Name[0] == 0xE5) continue;
+
+        char formatted_name[12];
+        format_dirname(file_entry->DIR_Name, formatted_name);
+        if(strcmp(formatted_name, filename) == 0 && !(file_entry->DIR_Attr & 0x10)){
+            file_found=true;
+            break;
+        }
+    }
+    if(!file_found){
+        printf("File not found:%s\n", filename);
+        free(buffer);
+        return;
+        }
+    if(open_files_count>=MAX_OPEN_FILES){
+        printf("Max files opened\n");
+        free(buffer);
+        return;
+    }
+    open_files[open_files_count].entry = *file_entry;
+    strcpy(open_files[open_files_count].mode, flags);
+    open_files[open_files_count].file_pos = 0;
+    open_files_count++;
+    printf("File opened successfully: %s with falgs: %s\n", filename, flags);
+    free(buffer);
+}
+
+void close_file(char* input){
+
+    while(*input == ' ')
+        input++;
+
+    char filename[13];
+    sscanf(input, "%s", filename);
+
+    bool file_found = false;
+
+    for(int i = 0; i < open_files_count;i++){
+        char formatted_name[12];
+        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
+        if(strcmp(formatted_name, filename) == 0){
+            file_found=true;
+            break;
+        }
+    }
+
+
+    if(!file_found){
+        printf("File not found:%s\n", filename);
+
+        return;
+    }
+    for(int y = 0; y<open_files_count-1;y++){
+        open_files[y] = open_files[y+1];
+    }
+
+
+
+    open_files_count--;
+    printf("file closed successfully: %s\n", filename);
+}
+
 // ============================================================================
 // ============================================================================
 
@@ -399,8 +503,19 @@ void main_process() {
             create_directory(command + 6); // Skip "mkdir "
         else if (strncmp(command, "creat ", 6) == 0)
             create_file(command + 6); // Skip "creat "
+        else if(strncmp(command, "open ", 5) == 0)
+            open_file(command + 5);
+        else if(strncmp(command, "close ", 6) == 0)
+            close_file(command + 6);
+        // else if(strncmp(command, "lsof", 5) == 0)
+        //     open_file(command + 5);
+        // else if(strncmp(command, "lseek", 6) == 0)
+        //     open_file(command + 6);
+        // else if(strncmp(command, "read", 5) == 0)
+        //     open_file(command + 5);
         else
             printf("Invalid command.\n");
+        
     }
 }
 
