@@ -565,6 +565,16 @@ void main_process() {
             create_directory(command + 6); // Skip "mkdir "
         else if (strncmp(command, "creat ", 6) == 0)
             create_file(command + 6); // Skip "creat "
+        else if(strncmp(command, "open ", 5) == 0)
+            open_file(command + 5);
+        else if(strncmp(command, "close ", 6) == 0)
+            close_file(command + 6);
+        else if(strncmp(command, "lsof", 5) == 0)
+            list_all();
+        else if(strncmp(command, "lseek ", 6) == 0)
+            set_file_offset(command + 6);
+        // else if(strncmp(command, "read", 5) == 0)
+        //     open_file(command + 5);
         else
             printf("Invalid command.\n");
     }
