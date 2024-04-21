@@ -8,8 +8,8 @@
 #include <inttypes.h>
 
 // Variable Declarations 
+// Variables for Part 1:
 
-// For Part 1
 typedef struct __attribute__((packed)) BPB {
     // below 36 bytes are the main bpb
     uint8_t BS_jmpBoot[3];
@@ -41,7 +41,6 @@ typedef struct __attribute__((packed)) BPB {
     char BS_FilSysType[8];
 } bpb_t;
 
-// For Part 1
 typedef struct __attribute__((packed)) directory_entry {
     char DIR_Name[11];
     uint8_t DIR_Attr;
@@ -54,10 +53,16 @@ typedef struct __attribute__((packed)) directory_entry {
     uint32_t DIR_FileSize;
 } dentry_t;
 
-// For Part 2
+char current_path[1024] = "/";  // Initially at the root directory.
+char volume_label[12] = "";     // To store the volume label extracted from BootBlock.
+
+
+// Variables for Part 2:
 // Define a global variable to store the current cluster of the working directory
 uint32_t current_cluster = 0; // Root cluster at the start
 
+// ============================================================================
+// ============================================================================
 
 // Part 1: Mount the Image File
 
@@ -72,8 +77,8 @@ void mount_fat32(const char *imgPath) {
         exit(EXIT_FAILURE);
     }
     fread(&BootBlock, sizeof(BootBlock), 1, imgFile);
-
-    current_cluster = BootBlock.BPB_RootClus; // For Part 2. assign current_cluster the value of the root cluster
+    snprintf(volume_label, sizeof(volume_label), "%.11s", BootBlock.BS_VolLab);
+    current_cluster = BootBlock.BPB_RootClus; // For Part 2; assigns current_cluster the value of the root cluster
 }
 
 // Getting FAT32 File info
@@ -107,6 +112,12 @@ void getInfo(){
     printf("BS_FilSysType: %.8s\n", BootBlock.BS_FilSysType);
 }
 
+// Diplays terminal as [NAME_OF_IMAGE]/[PATH_IN_IMAGE]/>
+void display_prompt() {
+    printf("[%s]%s> ", volume_label, current_path);
+}
+
+
 // Exiting the program
 void exitProgram() {
     // close the image file
@@ -117,6 +128,9 @@ void exitProgram() {
     // free any other resources here ...
     exit(0);
 }
+
+// ============================================================================
+// ============================================================================
 
 // Part 2: Navigation
 
@@ -189,8 +203,23 @@ void change_directory(const char* dirname) {
 
     if (found) {
         uint32_t new_cluster = entry->DIR_FstClusHI << 16 | entry->DIR_FstClusLO;
-        // Update current_cluster globally or using a shared variable
         current_cluster = new_cluster;
+        // Update the path
+        if (strcmp(dirname, "..") == 0) {
+            // Handle going up in the directory tree
+            char *last_slash = strrchr(current_path, '/');
+            if (last_slash != current_path) {  // Not at the root
+                *last_slash = '\0';
+            } else {
+                *(last_slash + 1) = '\0';  // Stay at the root
+            }
+        } else {
+            // Append new directory to path
+            if (strlen(current_path) > 1) {
+                strcat(current_path, "/");
+            }
+            strcat(current_path, dirname);
+        }
         printf("Changing directory to %s\n", dirname);
     } else {
         printf("Directory not found\n");
@@ -223,6 +252,9 @@ void list_directory() {
 
     free(buffer);
 }
+
+// ============================================================================
+// ============================================================================
 
 // Part 3: Create
 
@@ -341,12 +373,15 @@ void create_file(const char *filename) {
     printf("File '%s' created successfully.\n", filename);
 }
 
+// ============================================================================
+// ============================================================================
+
 // Main Functions
 
 void main_process() {
     char command[256];
     while (1) {
-        printf("[FAT32Shell]>");
+        display_prompt();
         fgets(command, 256, stdin);
 
         // remove trailing newline
