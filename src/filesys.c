@@ -1,5 +1,3 @@
-// filesys.c
-
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,20 +10,20 @@
 // For Part 1
 typedef struct __attribute__((packed)) BPB {
     // below 36 bytes are the main bpb
-    uint8_t BS_jmpBoot[3];
-    char BS_OEMName[8];
-    uint16_t BPB_BytsPerSec;
-    uint8_t BPB_SecPerClus;
-    uint16_t BPB_RsvdSecCnt;
-    uint8_t BPB_NumFATs;
-    uint16_t BPB_RootEntCnt;
-    uint16_t BPB_TotSec16;
-    uint8_t BPB_Media;
-    uint16_t BPB_FATSz16;
-    uint16_t BPB_SecPerTrk;
-    uint16_t BPB_NumHeads;
-    uint32_t BPB_HiddSec;
-    uint32_t BPB_TotSec32;
+	uint8_t BS_jmpBoot[3];
+	char BS_OEMName[8];
+	uint16_t BPB_BytsPerSec;
+	uint8_t BPB_SecPerClus;
+	uint16_t BPB_RsvdSecCnt;
+	uint8_t BPB_NumFATs;
+	uint16_t BPB_RootEntCnt;
+	uint16_t BPB_TotSec16;
+	uint8_t BPB_Media;
+	uint16_t BPB_FATSz16;
+	uint16_t BPB_SecPerTrk;
+	uint16_t BPB_NumHeads;
+	uint32_t BPB_HiddSec;
+	uint32_t BPB_TotSec32;
     uint32_t BPB_FATSz32;
     uint16_t BPB_ExtFlags;
     uint16_t BPB_FSVer;
@@ -46,13 +44,23 @@ typedef struct __attribute__((packed)) directory_entry {
     char DIR_Name[11];
     uint8_t DIR_Attr;
     char padding_1[8]; // DIR_NTRes, DIR_CrtTimeTenth, DIR_CrtTime, DIR_CrtDate, 
-                    // DIR_LstAccDate. Since these fields are not used in
-                    // Project 3, just define as a placeholder.
+                       // DIR_LstAccDate. Since these fields are not used in
+                       // Project 3, just define as a placeholder.
     uint16_t DIR_FstClusHI;
     char padding_2[4]; // DIR_WrtTime, DIR_WrtDate
     uint16_t DIR_FstClusLO;
     uint32_t DIR_FileSize;
 } dentry_t;
+
+typedef struct{
+    dentry_t entry;
+    uint32_t file_pos;
+    char mode[3];
+}open_file_t;
+
+#define MAX_OPEN_FILES 32
+open_file_t open_files[MAX_OPEN_FILES];
+int open_files_count=0;
 
 // For Part 2
 // Define a global variable to store the current cluster of the working directory
@@ -341,6 +349,99 @@ void create_file(const char *filename) {
     printf("File '%s' created successfully.\n", filename);
 }
 
+
+void open_file(char* input){
+    while(*input == ' ')
+        input++;
+
+    char filename[13];
+    char flags[4];
+    sscanf(input, "%s %s", filename, flags);
+
+    if(strcmp(flags,"-r") != 0 && strcmp(flags,"-w")!= 0 &&
+        strcmp(flags, "-rw") != 0 && strcmp(flags, "-wr") != 0){
+            printf("invalid mode: %s", flags);
+            return;
+    }
+    for(int i = 0; i <open_files_count; i++){
+        if(strncmp(open_files[i].entry.DIR_Name, filename, 11) == 0){
+            printf("File alr open: %s\n",filename);
+            return;
+        }
+    }
+    uint32_t cluster_size;
+    uint8_t* buffer = read_current_directory_cluster(&cluster_size);
+    if(!buffer){
+        return;
+    }
+
+    bool file_found = false;
+    dentry_t *file_entry = NULL;
+    for(int i = 0; i< cluster_size; i+=sizeof(dentry_t)){
+        file_entry = (dentry_t *)(buffer + i);
+        if(file_entry->DIR_Name[0] == 0x00)break;
+        if(file_entry->DIR_Name[0] == 0xE5) continue;
+
+        char formatted_name[12];
+        format_dirname(file_entry->DIR_Name, formatted_name);
+        if(strcmp(formatted_name, filename) == 0 && !(file_entry->DIR_Attr & 0x10)){
+            file_found=true;
+            break;
+        }
+    }
+    if(!file_found){
+        printf("File not found:%s\n", filename);
+        free(buffer);
+        return;
+    }
+    if(open_files_count>=MAX_OPEN_FILES){
+        printf("Max files opened\n");
+        free(buffer);
+        return;
+    }
+    open_files[open_files_count].entry = *file_entry;
+    strcpy(open_files[open_files_count].mode, flags);
+    open_files[open_files_count].file_pos = 0;
+    open_files_count++;
+    printf("File opened successfully: %s with falgs: %s\n", filename, flags);
+    free(buffer);
+}
+
+void close_file(char* input){
+
+    while(*input == ' ')
+        input++;
+    
+    char filename[13];
+    sscanf(input, "%s", filename);
+
+    bool file_found = false;
+
+    for(int i = 0; i < open_files_count;i++){
+        char formatted_name[12];
+        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
+        if(strcmp(formatted_name, filename) == 0){
+            file_found=true;
+            break;
+        }
+    }
+
+
+    if(!file_found){
+        printf("File not found:%s\n", filename);
+        
+        return;
+    }
+    for(int y = 0; y<open_files_count-1;y++){
+        open_files[y] = open_files[y+1];
+    }
+
+
+
+    open_files_count--;
+    printf("file closed successfully: %s\n", filename);
+}
+
 // Main Functions
 
 void main_process() {
@@ -364,8 +465,20 @@ void main_process() {
             create_directory(command + 6); // Skip "mkdir "
         else if (strncmp(command, "creat ", 6) == 0)
             create_file(command + 6); // Skip "creat "
+        else if(strncmp(command, "open ", 5) == 0)
+            open_file(command + 5);
+        else if(strncmp(command, "close ", 6) == 0)
+            close_file(command + 6);
+            //close_file(command + 6);
         else
             printf("Invalid command.\n");
+        // else if(strncmp(command, "lsof", 5) == 0)
+        //     open_file(command + 5);
+        // else if(strncmp(command, "lseek", 6) == 0)
+        //     open_file(command + 6);
+        // else if(strncmp(command, "read", 5) == 0)
+        //     open_file(command + 5);
+
     }
 }
 
@@ -383,4 +496,3 @@ int main(int argc, char const *argv[])
 
     return 0;
 }
-
