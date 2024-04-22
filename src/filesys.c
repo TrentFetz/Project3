@@ -604,7 +604,89 @@ void read_file(char *input){
 // ============================================================================
 // ============================================================================
 
-// Part 5: Write
+uint32_t find_free_cluster() {
+    uint32_t fat_offset = BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec;
+    uint32_t fat_size = BootBlock.BPB_FATSz32 * BootBlock.BPB_BytsPerSec;
+    uint32_t cluster_count = BootBlock.BPB_TotSec32 / BootBlock.BPB_SecPerClus;
+
+    uint8_t *fat_buffer = malloc(fat_size);
+    if (fat_buffer == NULL) {
+        perror("Memory allocation failed");
+        return 0;
+    }
+
+    fseek(imgFile, fat_offset, SEEK_SET);
+    fread(fat_buffer, fat_size, 1, imgFile);
+
+    uint32_t *fat = (uint32_t *)fat_buffer;
+    uint32_t free_cluster = 0;
+
+    for (uint32_t i = 2; i < cluster_count; i++) {
+        uint32_t entry = fat[i];
+        if (entry == 0) {
+            free_cluster = i;
+            break;
+        }
+    }
+
+    free(fat_buffer);
+    return free_cluster;
+}
+
+void extend_file(dentry_t *entry, uint32_t new_file_size) {
+    uint32_t current_size = entry->DIR_FileSize;
+    uint32_t cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
+
+    if (new_file_size <= current_size) {
+        // File size is not increasing, no need to extend
+        return;
+    }
+
+    uint32_t current_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
+    uint32_t next_cluster = 0;
+    uint32_t data_start = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+
+    // Traverse the existing cluster chain
+    while (current_cluster != 0) {
+        uint32_t fat_offset = current_cluster * sizeof(uint32_t);
+        fseek(imgFile, BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec + fat_offset, SEEK_SET);
+        fread(&next_cluster, sizeof(uint32_t), 1, imgFile);
+
+        if (current_size + cluster_size >= new_file_size) {
+            // Enough space in the existing cluster chain
+            break;
+        }
+
+        current_size += cluster_size;
+        current_cluster = next_cluster;
+    }
+
+    // Allocate new clusters as needed
+    while (current_size < new_file_size) {
+        uint32_t free_cluster = find_free_cluster();
+        if (free_cluster == 0) {
+            printf("Error: No free clusters available to extend the file.\n");
+            return;
+        }
+
+        if (next_cluster == 0) {
+            // First cluster in the chain
+            entry->DIR_FstClusLO = free_cluster & 0xFFFF;
+            entry->DIR_FstClusHI = (free_cluster >> 16) & 0xFFFF;
+        } else {
+            // Update the FAT entry for the previous cluster
+            uint32_t fat_offset = next_cluster * sizeof(uint32_t);
+            fseek(imgFile, BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec + fat_offset, SEEK_SET);
+            fwrite(&free_cluster, sizeof(uint32_t), 1, imgFile);
+        }
+
+        next_cluster = free_cluster;
+        current_size += cluster_size;
+    }
+
+    // Update the file size
+    entry->DIR_FileSize = new_file_size;
+}
 
 void write_file(char *input) {
     char filename[13];
@@ -613,10 +695,12 @@ void write_file(char *input) {
 
     bool file_open = false;
     int file_index = -1;
+
+
     for (int i = 0; i < open_files_count; i++) {
         char formatted_name[12];
         format_dirname(open_files[i].entry.DIR_Name, formatted_name);
-        if (strcmp(formatted_name, filename) == 0) {
+        if (strcmp(formatted_name, filename) == 0 && (open_files[i].mode == 'w' || open_files[i].mode == 'wr' || open_files[i].mode == 'rw' )) {
             file_open = true;
             file_index = i;
             break;
@@ -656,6 +740,91 @@ void write_file(char *input) {
 // ============================================================================
 // ============================================================================
 
+// Part 6: rm and rmdir
+
+void rm(char *input) {
+    char filename[13];
+    sscanf(input, "%s", filename);
+
+    bool file_found = false;
+    int file_index = -1;
+    for (int i = 0; i < open_files_count; i++) {
+        char formatted_name[12];
+        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
+        if (strcmp(formatted_name, filename) == 0) {
+            file_found = true;
+            file_index = i;
+            break;
+        }
+    }
+
+    if (!file_found) {
+        printf("Error: file '%s' does not exist.\n", filename);
+        return;
+    }
+
+    if (open_files[file_index].entry.DIR_Attr & 0x10) {
+        printf("Error: '%s' is a directory.\n", filename);
+        return;
+    }
+
+    for (int i = 0; i < open_files_count; i++) {
+        if (i == file_index) continue;
+        if (open_files[i].entry.DIR_FstClusterLow == open_files[file_index].entry.DIR_FstClusterLow) {
+            printf("Error: file '%s' is open.\n", filename);
+            return;
+        }
+    }
+
+    delete_file(&open_files[file_index].entry);
+    remove_entry_from_directory(filename);
+}
+
+void rmdir(char *input) {
+    char dirname[13];
+    sscanf(input, "%s", dirname);
+
+    bool dir_found = false;
+    int dir_index = -1;
+    for (int i = 0; i < open_files_count; i++) {
+        char formatted_name[12];
+        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
+        if (strcmp(formatted_name, dirname) == 0) {
+            dir_found = true;
+            dir_index = i;
+            break;
+        }
+    }
+
+    if (!dir_found) {
+        printf("Error: directory '%s' does not exist.\n", dirname);
+        return;
+    }
+
+    if (!(open_files[dir_index].entry.DIR_Attr & 0x10)) {
+        printf("Error: '%s' is not a directory.\n", dirname);
+        return;
+    }
+
+    if (!is_directory_empty(&open_files[dir_index].entry)) {
+        printf("Error: directory '%s' is not empty.\n", dirname);
+        return;
+    }
+
+    for (int i = 0; i < open_files_count; i++) {
+        if (open_files[i].entry.DIR_FstClusterLow == open_files[dir_index].entry.DIR_FstClusterLow) {
+            printf("Error: file(s) open in directory '%s'.\n", dirname);
+            return;
+        }
+    }
+
+    delete_directory(&open_files[dir_index].entry);
+    remove_entry_from_directory(dirname);
+}
+
+// ============================================================================
+// ============================================================================
+
 // Main Functions
 
 void main_process() {
@@ -689,6 +858,8 @@ void main_process() {
             set_file_offset(command + 6);
         else if(strncmp(command, "read ", 5) == 0)
             open_file(command + 5);
+        else if(strncmp(command, "write ", 6) == 0)
+            write_file(command + 6);
         else
             printf("Invalid command.\n");
     }
