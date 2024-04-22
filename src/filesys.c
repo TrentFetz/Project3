@@ -953,6 +953,10 @@ void main_process() {
             open_file(command + 5);
         else if(strncmp(command, "write ", 6) == 0)
             write_file(command + 6);
+        else if(strncmp(command, "rm ", 3) == 0)
+            remove_file(command + 3);
+        else if(strncmp(command, "rmdir ", 6) == 0)
+            remove_directory(command + 3);
         else
             printf("Invalid command.\n");
     }
