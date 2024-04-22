@@ -742,84 +742,177 @@ void write_file(char *input) {
 
 // Part 6: rm and rmdir
 
-void rm(char *input) {
+void reclaim_file_clusters(dentry_t *entry) {
+    uint32_t current_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
+    uint32_t next_cluster = 0;
+    uint32_t data_start = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+
+    while (current_cluster != 0) {
+        uint32_t fat_offset = current_cluster * sizeof(uint32_t);
+        fseek(imgFile, BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec + fat_offset, SEEK_SET);
+        fread(&next_cluster, sizeof(uint32_t), 1, imgFile);
+
+        // Mark the cluster as free in the FAT
+        uint32_t free_cluster = 0;
+        fseek(imgFile, BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec + fat_offset, SEEK_SET);
+        fwrite(&free_cluster, sizeof(uint32_t), 1, imgFile);
+
+        current_cluster = next_cluster;
+    }
+}
+
+void remove_file(char *input) {
     char filename[13];
     sscanf(input, "%s", filename);
 
-    bool file_found = false;
-    int file_index = -1;
-    for (int i = 0; i < open_files_count; i++) {
+    uint32_t cluster_size;
+    uint8_t *buffer = read_current_directory_cluster(&cluster_size);
+    if (!buffer) {
+        return; // Error handling in the read_current_directory_cluster function
+    }
+
+    dentry_t *entry = NULL;
+    int entry_index = -1;
+    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+        entry = (dentry_t *)(buffer + i);
+        if (entry->DIR_Name[0] == 0x00) // No more entries
+            break;
+        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+            continue;
+
         char formatted_name[12];
-        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
-        if (strcmp(formatted_name, filename) == 0) {
-            file_found = true;
-            file_index = i;
+        format_dirname(entry->DIR_Name, formatted_name);
+
+        if (strcasecmp(formatted_name, filename) == 0) {
+            if (entry->DIR_Attr & 0x10) { // Directory attribute
+                printf("Error: '%s' is a directory.\n", filename);
+                free(buffer);
+                return;
+            }
+
+            // Check if the file is opened
+            for (int j = 0; j < open_files_count; j++) {
+                char open_name[12];
+                format_dirname(open_files[j].entry.DIR_Name, open_name);
+                if (strcasecmp(open_name, filename) == 0) {
+                    printf("Error: File '%s' is currently open.\n", filename);
+                    free(buffer);
+                    return;
+                }
+            }
+
+            entry_index = i;
             break;
         }
     }
 
-    if (!file_found) {
-        printf("Error: file '%s' does not exist.\n", filename);
+    if (entry_index == -1) {
+        printf("Error: File '%s' not found.\n", filename);
+        free(buffer);
         return;
     }
 
-    if (open_files[file_index].entry.DIR_Attr & 0x10) {
-        printf("Error: '%s' is a directory.\n", filename);
-        return;
-    }
+    // Remove the file entry from the directory
+    entry->DIR_Name[0] = 0xE5; // Mark the entry as deleted
 
-    for (int i = 0; i < open_files_count; i++) {
-        if (i == file_index) continue;
-        if (open_files[i].entry.DIR_FstClusterLow == open_files[file_index].entry.DIR_FstClusterLow) {
-            printf("Error: file '%s' is open.\n", filename);
-            return;
-        }
-    }
+    // Write back the modified buffer to the image file
+    uint32_t first_sector_of_cluster = ((current_cluster - 2) * BootBlock.BPB_SecPerClus) + (BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32));
+    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+    fwrite(buffer, cluster_size, 1, imgFile);
 
-    delete_file(&open_files[file_index].entry);
-    remove_entry_from_directory(filename);
+    free(buffer);
+
+    // Reclaim the actual file data
+    reclaim_file_clusters(entry);
+
+    printf("File '%s' deleted successfully.\n", filename);
 }
 
-void rmdir(char *input) {
-    char dirname[13];
-    sscanf(input, "%s", dirname);
+void remove_directory(const char *dirname) {
+    uint32_t cluster_size;
+    uint8_t *buffer = read_current_directory_cluster(&cluster_size);
+    if (!buffer) {
+        return; // Error handling in the read_current_directory_cluster function
+    }
 
-    bool dir_found = false;
-    int dir_index = -1;
-    for (int i = 0; i < open_files_count; i++) {
+    dentry_t *entry = NULL;
+    int entry_index = -1;
+    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+        entry = (dentry_t *)(buffer + i);
+        if (entry->DIR_Name[0] == 0x00) // No more entries
+            break;
+        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+            continue;
+
         char formatted_name[12];
-        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
-        if (strcmp(formatted_name, dirname) == 0) {
-            dir_found = true;
-            dir_index = i;
+        format_dirname(entry->DIR_Name, formatted_name);
+
+        if (strcasecmp(formatted_name, dirname) == 0) {
+            if (!(entry->DIR_Attr & 0x10)) { // Not a directory
+                printf("Error: '%s' is not a directory.\n", dirname);
+                free(buffer);
+                return;
+            }
+
+            entry_index = i;
             break;
         }
     }
 
-    if (!dir_found) {
-        printf("Error: directory '%s' does not exist.\n", dirname);
+    if (entry_index == -1) {
+        printf("Error: Directory '%s' not found.\n", dirname);
+        free(buffer);
         return;
     }
 
-    if (!(open_files[dir_index].entry.DIR_Attr & 0x10)) {
-        printf("Error: '%s' is not a directory.\n", dirname);
-        return;
+    // Check if the directory is empty
+    uint32_t dir_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
+    uint32_t dir_cluster_size;
+    uint8_t *dir_buffer = read_current_directory_cluster(&dir_cluster_size);
+    if (!dir_buffer) {
+        free(buffer);
+        return; // Error handling in the read_current_directory_cluster function
     }
 
-    if (!is_directory_empty(&open_files[dir_index].entry)) {
-        printf("Error: directory '%s' is not empty.\n", dirname);
-        return;
-    }
+    int empty_dir = 1;
+    dentry_t *dir_entry = NULL;
+    for (int i = 0; i < dir_cluster_size; i += sizeof(dentry_t)) {
+        dir_entry = (dentry_t *)(dir_buffer + i);
+        if (dir_entry->DIR_Name[0] == 0x00) // No more entries
+            break;
+        if (dir_entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+            continue;
 
-    for (int i = 0; i < open_files_count; i++) {
-        if (open_files[i].entry.DIR_FstClusterLow == open_files[dir_index].entry.DIR_FstClusterLow) {
-            printf("Error: file(s) open in directory '%s'.\n", dirname);
-            return;
+        char formatted_name[12];
+        format_dirname(dir_entry->DIR_Name, formatted_name);
+
+        if (strcmp(formatted_name, ".") != 0 && strcmp(formatted_name, "..") != 0) {
+            empty_dir = 0;
+            break;
         }
     }
 
-    delete_directory(&open_files[dir_index].entry);
-    remove_entry_from_directory(dirname);
+    if (empty_dir) {
+        // Remove the directory entry from the current directory
+        entry->DIR_Name[0] = 0xE5; // Mark the entry as deleted
+
+        // Write back the modified buffer to the image file
+        uint32_t first_sector_of_cluster = ((current_cluster - 2) * BootBlock.BPB_SecPerClus) + (BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32));
+        fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+        fwrite(buffer, cluster_size, 1, imgFile);
+
+        free(buffer);
+        free(dir_buffer);
+
+        // Reclaim the clusters occupied by the directory
+        reclaim_file_clusters(entry);
+
+        printf("Directory '%s' removed successfully.\n", dirname);
+    } else {
+        printf("Error: Directory '%s' is not empty.\n", dirname);
+        free(buffer);
+        free(dir_buffer);
+    }
 }
 
 // ============================================================================
