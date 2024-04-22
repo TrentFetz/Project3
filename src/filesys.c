@@ -479,7 +479,6 @@ void close_file(char* input){
     printf("file closed successfully: %s\n", filename);
 }
 
-
 void list_all(){
     if(open_files_count == 0){//no files to list
         printf("No files to open currently.\n");
@@ -602,7 +601,57 @@ void read_file(char *input){
     free(buffer);
 }
 
+// ============================================================================
+// ============================================================================
 
+// Part 5: Write
+
+void write_file(char *input) {
+    char filename[13];
+    char string[256];
+    sscanf(input, "%s %256s", filename, string);
+
+    bool file_open = false;
+    int file_index = -1;
+    for (int i = 0; i < open_files_count; i++) {
+        char formatted_name[12];
+        format_dirname(open_files[i].entry.DIR_Name, formatted_name);
+        if (strcmp(formatted_name, filename) == 0) {
+            file_open = true;
+            file_index = i;
+            break;
+        }
+    }
+
+    if (!file_open) {
+        printf("Error: file '%s' not open or does not exist.\n", filename);
+        return;
+    }
+
+    if (open_files[file_index].entry.DIR_Attr & 0x10) {
+        printf("Error: '%s' is a directory.\n", filename);
+        return;
+    }
+
+    if (strchr(open_files[file_index].mode, 'w') == NULL) {
+        printf("Error: file '%s' not opened for writing.\n", filename);
+        return;
+    }
+
+    uint32_t file_offset = open_files[file_index].file_pos;
+    uint32_t string_length = strlen(string);
+    uint32_t new_file_size = file_offset + string_length;
+
+    if (new_file_size > open_files[file_index].entry.DIR_FileSize) {
+        extend_file(&open_files[file_index].entry, new_file_size);
+    }
+
+    fseek(imgFile, calculate_file_offset(open_files[file_index].entry), SEEK_SET);
+    fseek(imgFile, file_offset, SEEK_CUR);
+    fwrite(string, sizeof(char), string_length, imgFile);
+
+    open_files[file_index].file_pos = new_file_size;
+}
 
 // ============================================================================
 // ============================================================================
