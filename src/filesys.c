@@ -55,6 +55,7 @@ typedef struct __attribute__((packed)) directory_entry {
 
 char current_path[1024] = "/";  // Initially at the root directory.
 char volume_label[12] = "";     // To store the volume label extracted from BootBlock.
+char img_path[50] = "";
 
 // Variables for Part 2:
 // Define a global variable to store the current cluster of the working directory
@@ -89,6 +90,7 @@ void mount_fat32(const char *imgPath) {
     fread(&BootBlock, sizeof(BootBlock), 1, imgFile);
 
     snprintf(volume_label, sizeof(volume_label), "%.11s", BootBlock.BS_VolLab);
+    snprintf(img_path, 50, "%s", imgPath);
     current_cluster = BootBlock.BPB_RootClus; // For Part 2; assigns current_cluster the value of the root cluster
 }
 
@@ -96,18 +98,19 @@ void mount_fat32(const char *imgPath) {
 void getInfo(){
     uint32_t total_clusters = BootBlock.BPB_TotSec32 / BootBlock.BPB_SecPerClus; 
     uint32_t image_size = BootBlock.BPB_TotSec32 * BootBlock.BPB_BytsPerSec;
+    uint32_t entries_in_fat = (BootBlock.BPB_FATSz32 * BootBlock.BPB_BytsPerSec) / 4;
 
     printf("Bytes per sector: %u\n", BootBlock.BPB_BytsPerSec);
     printf("Sectors per cluster: %u\n", BootBlock.BPB_SecPerClus);
     printf("Root cluster: %u\n", BootBlock.BPB_RootClus);
     printf("Total # of clusters in data region: %u\n", total_clusters);
-    printf("Number of entries in FAT: %u\n", BootBlock.BPB_FATSz32);
+    printf("Number of entries in FAT: %u\n", entries_in_fat);
     printf("Size of image (bytes): %u\n", image_size);
 }
 
 // Diplays terminal as [NAME_OF_IMAGE]/[PATH_IN_IMAGE]/>
 void display_prompt() {
-    printf("[%s]%s> ", volume_label, current_path);
+    printf("%s%s> ", img_path, current_path);
 }
 
 // Exiting the program
@@ -237,13 +240,11 @@ void list_directory() {
         if ((unsigned char)entry->DIR_Name[0] == 0xE5){ // Skipped deleted entry
             continue;
         }
-        if (entry->DIR_Attr & 0x10) { // Directory attribute
-            char formatted_name[12];
-            format_dirname(entry->DIR_Name, formatted_name);
 
-            // if (strcmp(formatted_name, ".") != 0 && strcmp(formatted_name, "..") != 0)
-            printf("%s\n", formatted_name);
-        }
+        char formatted_name[12];
+        format_dirname(entry->DIR_Name, formatted_name);
+
+        printf("%s\n", formatted_name);
     }
 
     free(buffer);
@@ -723,6 +724,8 @@ void write_file(char *input) {
     fseek(imgFile, calculate_file_offset(open_files[file_index].entry), SEEK_SET);
     fseek(imgFile, file_offset, SEEK_CUR);
     fwrite(string, sizeof(char), string_length, imgFile);
+
+    // open_files[file_index].file_pos = new_file_size;
 }
 
 // ============================================================================
