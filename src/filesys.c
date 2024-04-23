@@ -581,7 +581,7 @@ void read_file(char *input){
         return;
     }
     fread(buffer, read_size, 1, imgFile);
-    printf("Data read: .*s\n", read_size, buffer);
+    printf("Data read: %.*s\n", read_size, buffer);
 
     open_files[file_index].file_pos = end_pos;
     free(buffer);
