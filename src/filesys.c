@@ -289,7 +289,7 @@ void create_directory(const char *dirname) {
     // Create the directory entry for the new directory
     dentry_t new_dir_entry;
     memset(&new_dir_entry, 0, sizeof(dentry_t));
-    snprintf(new_dir_entry.DIR_Name, 12, "%.11s", dirname);
+    snprintf(new_dir_entry.DIR_Name, 11, "%.11s", dirname);
     new_dir_entry.DIR_Attr = 0x10; // Directory attribute
     new_dir_entry.DIR_FstClusHI = 0;
     new_dir_entry.DIR_FstClusLO = 0;
@@ -941,7 +941,7 @@ void main_process() {
         else if(strncmp(command, "rm ", 3) == 0)
             remove_file(command + 3);
         else if(strncmp(command, "rmdir ", 6) == 0)
-            remove_directory(command + 3);
+            remove_directory(command + 6);
         else
             printf("Invalid command.\n");
     }
