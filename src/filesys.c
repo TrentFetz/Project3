@@ -171,13 +171,14 @@ void change_directory(const char* dirname) {
 
     int found = 0;
     dentry_t *entry = NULL;
-    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int)cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00) // No more entries
             break;
-        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+        if ((unsigned char) entry->DIR_Name[0] ==  0xE5) // Skipped deleted entry
             continue;
         if (entry->DIR_Attr & 0x10) { // Directory attribute
+
             char formatted_name[12];
             format_dirname(entry->DIR_Name, formatted_name);
 
@@ -229,17 +230,22 @@ void list_directory() {
     }
 
     printf("Listing directory contents:\n");
-    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int)cluster_size; i += sizeof(dentry_t)) {
         dentry_t *entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00) // No more entries
             break;
-        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+        if ((unsigned char)entry->DIR_Name[0] == 0xE5){ // Skipped deleted entry
             continue;
+        }
         if (entry->DIR_Attr & 0x10) { // Directory attribute
             char formatted_name[12];
             format_dirname(entry->DIR_Name, formatted_name);
             printf("%s\n", formatted_name);
         }
+
+        char formatted_name[12];
+        format_dirname(entry->DIR_Name, formatted_name);
+        printf("%s\n", formatted_name);
     
     }
 
@@ -260,11 +266,11 @@ bool check_exists(const char *name) {
     }
 
     dentry_t *entry = NULL;
-    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int) cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00) // No more entries
             break;
-        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+        if ((unsigned char) entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
             continue;
 
         char formatted_name[12];
@@ -305,9 +311,9 @@ void create_directory(const char *dirname) {
 
     // Find the first available slot in the current directory cluster
     dentry_t *entry = NULL;
-    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int) cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
-        if (entry->DIR_Name[0] == 0x00 || entry->DIR_Name[0] == 0xE5) {
+        if (entry->DIR_Name[0] == 0x00 || (unsigned char)entry->DIR_Name[0] == 0xE5) {
             memcpy(entry, &new_dir_entry, sizeof(dentry_t));
             break;
         }
@@ -351,9 +357,9 @@ void create_file(const char *filename) {
 
     // Find the first available slot in the current directory cluster
     dentry_t *entry = NULL;
-    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int) cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
-        if (entry->DIR_Name[0] == 0x00 || entry->DIR_Name[0] == 0xE5) {
+        if (entry->DIR_Name[0] == 0x00 || (unsigned char)entry->DIR_Name[0] == 0xE5) {
             memcpy(entry, &new_file_entry, sizeof(dentry_t));
             break;
         }
@@ -401,10 +407,10 @@ void open_file(char* input){
 
     bool file_found = false;
     dentry_t *file_entry = NULL;
-    for(int i = 0; i< cluster_size; i+=sizeof(dentry_t)){
+    for(int i = 0; i < (int)cluster_size; i+=sizeof(dentry_t)){
         file_entry = (dentry_t *)(buffer + i);
         if(file_entry->DIR_Name[0] == 0x00)break;
-        if(file_entry->DIR_Name[0] == 0xE5) continue;
+        if((unsigned char)file_entry->DIR_Name[0] == 0xE5) continue;
 
         char formatted_name[12];
         format_dirname(file_entry->DIR_Name, formatted_name);
@@ -550,8 +556,9 @@ void read_file(char *input){
             break;
         }
     }
+
     if(!file_open){
-        printf("Error: file not open on does not exist.\n" , filename);
+        printf("Error: file '%s' not open or does not exist.\n", filename);
         return;
     }
     if(open_files[file_index].entry.DIR_Attr & 0x10){//invalid input
@@ -559,7 +566,7 @@ void read_file(char *input){
         return;
     }
     if (strchr(open_files[file_index].mode, 'r') == NULL) {//invalid permissions
-        printf("Error: file not opened for reading.\n" ,filename);
+        printf("Error: file '%s'not opened for reading.\n" ,filename);
         return;
     }
 
@@ -630,7 +637,7 @@ void extend_file(dentry_t *entry, uint32_t new_file_size) {
 
     uint32_t current_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
     uint32_t next_cluster = 0;
-    uint32_t data_start = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+    // uint32_t data_start = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
 
     // Traverse the existing cluster chain
     while (current_cluster != 0) {
@@ -649,6 +656,7 @@ void extend_file(dentry_t *entry, uint32_t new_file_size) {
 
     // Allocate new clusters as needed
     while (current_size < new_file_size) {
+        printf("Find free cluster");
         uint32_t free_cluster = find_free_cluster();
         if (free_cluster == 0) {
             printf("Error: No free clusters available to extend the file.\n");
@@ -683,16 +691,18 @@ void write_file(char *input) {
     int file_index = -1;
 
 
-    for (int i = 0; i < open_files_count; i++) {
+    for(int i = 0; i < open_files_count; i++){//loop through opened files
         char formatted_name[12];
         format_dirname(open_files[i].entry.DIR_Name, formatted_name);
-        if (strcmp(formatted_name, filename) == 0 && (open_files[i].mode == 'w' || open_files[i].mode == 'wr' || open_files[i].mode == 'rw' )) {
-            file_open = true;
+        if(strcmp(formatted_name, filename) == 0){
+            file_open=true;//file found
             file_index = i;
             break;
         }
     }
 
+    printf("FOund file\n");
+    
     if (!file_open) {
         printf("Error: file '%s' not open or does not exist.\n", filename);
         return;
@@ -712,7 +722,12 @@ void write_file(char *input) {
     uint32_t string_length = strlen(string);
     uint32_t new_file_size = file_offset + string_length;
 
+    // printf(new_file_size);
+    // printf("\n");
+    // printf(open_files[file_index].entry.DIR_FileSize);
+
     if (new_file_size > open_files[file_index].entry.DIR_FileSize) {
+        printf("extend file size\n");
         extend_file(&open_files[file_index].entry, new_file_size);
     }
 
@@ -728,10 +743,25 @@ void write_file(char *input) {
 
 // Part 6: rm and rmdir
 
+uint8_t* read_directory_cluster(uint32_t* cluster_size, uint32_t dir_cluster) {
+    *cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
+    uint8_t *buffer = malloc(*cluster_size);
+    if (!buffer) {
+        perror("Memory allocation failed");
+        return NULL;
+    }
+
+    uint32_t first_data_sector = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+    uint32_t first_sector_of_cluster = ((dir_cluster - 2) * BootBlock.BPB_SecPerClus) + first_data_sector;
+    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+    fread(buffer, *cluster_size, 1, imgFile);
+    return buffer;
+}
+
 void reclaim_file_clusters(dentry_t *entry) {
     uint32_t current_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
     uint32_t next_cluster = 0;
-    uint32_t data_start = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
+    // uint32_t data_start = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
 
     while (current_cluster != 0) {
         uint32_t fat_offset = current_cluster * sizeof(uint32_t);
@@ -759,11 +789,11 @@ void remove_file(char *input) {
 
     dentry_t *entry = NULL;
     int entry_index = -1;
-    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int) cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00) // No more entries
             break;
-        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+        if ((unsigned char)entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
             continue;
 
         char formatted_name[12];
@@ -814,7 +844,10 @@ void remove_file(char *input) {
     printf("File '%s' deleted successfully.\n", filename);
 }
 
-void remove_directory(const char *dirname) {
+void remove_directory(const char *input) {
+    char dirname[13];
+    sscanf(input, "%s", dirname);
+
     uint32_t cluster_size;
     uint8_t *buffer = read_current_directory_cluster(&cluster_size);
     if (!buffer) {
@@ -823,11 +856,11 @@ void remove_directory(const char *dirname) {
 
     dentry_t *entry = NULL;
     int entry_index = -1;
-    for (int i = 0; i < cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int) cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00) // No more entries
             break;
-        if (entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+        if ((unsigned char)entry->DIR_Name[0] == 0xE5) // Skip deleted entry
             continue;
 
         char formatted_name[12];
@@ -854,7 +887,8 @@ void remove_directory(const char *dirname) {
     // Check if the directory is empty
     uint32_t dir_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
     uint32_t dir_cluster_size;
-    uint8_t *dir_buffer = read_current_directory_cluster(&dir_cluster_size);
+    uint8_t *dir_buffer = read_directory_cluster(&dir_cluster_size,dir_cluster);
+
     if (!dir_buffer) {
         free(buffer);
         return; // Error handling in the read_current_directory_cluster function
@@ -862,11 +896,11 @@ void remove_directory(const char *dirname) {
 
     int empty_dir = 1;
     dentry_t *dir_entry = NULL;
-    for (int i = 0; i < dir_cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int)dir_cluster_size; i += sizeof(dentry_t)) {
         dir_entry = (dentry_t *)(dir_buffer + i);
         if (dir_entry->DIR_Name[0] == 0x00) // No more entries
             break;
-        if (dir_entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
+        if ((unsigned char)dir_entry->DIR_Name[0] == 0xE5) // Skipped deleted entry
             continue;
 
         char formatted_name[12];
