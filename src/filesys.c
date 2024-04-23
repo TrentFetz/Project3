@@ -240,6 +240,7 @@ void list_directory() {
             format_dirname(entry->DIR_Name, formatted_name);
             printf("%s\n", formatted_name);
         }
+    
     }
 
     free(buffer);
@@ -580,7 +581,7 @@ void read_file(char *input){
         return;
     }
     fread(buffer, read_size, 1, imgFile);
-    printf("Data read: &.*s\n", read_size, buffer);
+    printf("Data read: .*s\n", read_size, buffer);
 
     open_files[file_index].file_pos = end_pos;
     free(buffer);
@@ -935,7 +936,7 @@ void main_process() {
         else if(strncmp(command, "lseek ", 6) == 0)
             set_file_offset(command + 6);
         else if(strncmp(command, "read ", 5) == 0)
-            open_file(command + 5);
+            read_file(command + 5);
         else if(strncmp(command, "write ", 6) == 0)
             write_file(command + 6);
         else if(strncmp(command, "rm ", 3) == 0)
