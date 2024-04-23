@@ -240,13 +240,10 @@ void list_directory() {
         if (entry->DIR_Attr & 0x10) { // Directory attribute
             char formatted_name[12];
             format_dirname(entry->DIR_Name, formatted_name);
+
+            // if (strcmp(formatted_name, ".") != 0 && strcmp(formatted_name, "..") != 0)
             printf("%s\n", formatted_name);
         }
-
-        char formatted_name[12];
-        format_dirname(entry->DIR_Name, formatted_name);
-        printf("%s\n", formatted_name);
-    
     }
 
     free(buffer);
@@ -635,13 +632,13 @@ void extend_file(dentry_t *entry, uint32_t new_file_size) {
         return;
     }
 
-    uint32_t current_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
+    uint32_t cur_cluster = entry->DIR_FstClusLO | (entry->DIR_FstClusHI << 16);
     uint32_t next_cluster = 0;
     // uint32_t data_start = BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32);
 
     // Traverse the existing cluster chain
-    while (current_cluster != 0) {
-        uint32_t fat_offset = current_cluster * sizeof(uint32_t);
+    while (cur_cluster != 0) {
+        uint32_t fat_offset = cur_cluster * sizeof(uint32_t);
         fseek(imgFile, BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec + fat_offset, SEEK_SET);
         fread(&next_cluster, sizeof(uint32_t), 1, imgFile);
 
@@ -651,12 +648,11 @@ void extend_file(dentry_t *entry, uint32_t new_file_size) {
         }
 
         current_size += cluster_size;
-        current_cluster = next_cluster;
+        cur_cluster = next_cluster;
     }
 
     // Allocate new clusters as needed
     while (current_size < new_file_size) {
-        printf("Find free cluster");
         uint32_t free_cluster = find_free_cluster();
         if (free_cluster == 0) {
             printf("Error: No free clusters available to extend the file.\n");
@@ -700,8 +696,6 @@ void write_file(char *input) {
             break;
         }
     }
-
-    printf("FOund file\n");
     
     if (!file_open) {
         printf("Error: file '%s' not open or does not exist.\n", filename);
@@ -722,20 +716,13 @@ void write_file(char *input) {
     uint32_t string_length = strlen(string);
     uint32_t new_file_size = file_offset + string_length;
 
-    // printf(new_file_size);
-    // printf("\n");
-    // printf(open_files[file_index].entry.DIR_FileSize);
-
     if (new_file_size > open_files[file_index].entry.DIR_FileSize) {
-        printf("extend file size\n");
         extend_file(&open_files[file_index].entry, new_file_size);
     }
 
     fseek(imgFile, calculate_file_offset(open_files[file_index].entry), SEEK_SET);
     fseek(imgFile, file_offset, SEEK_CUR);
     fwrite(string, sizeof(char), string_length, imgFile);
-
-    open_files[file_index].file_pos = new_file_size;
 }
 
 // ============================================================================
