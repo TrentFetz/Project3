@@ -284,7 +284,71 @@ bool check_exists(const char *name) {
     return false; // No existing directory or file matches the given name
 }
 
-// Create a new directory with the given name
+uint32_t find_free_cluster() {
+    uint32_t fat_offset = BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec;
+    uint32_t fat_size = BootBlock.BPB_FATSz32 * BootBlock.BPB_BytsPerSec;
+    uint32_t cluster_count = BootBlock.BPB_TotSec32 / BootBlock.BPB_SecPerClus;
+
+    uint8_t *fat_buffer = malloc(fat_size);
+    if (fat_buffer == NULL) {
+        perror("Memory allocation failed");
+        return 0;
+    }
+
+    fseek(imgFile, fat_offset, SEEK_SET);
+    fread(fat_buffer, fat_size, 1, imgFile);
+
+    uint32_t *fat = (uint32_t *)fat_buffer;
+    uint32_t free_cluster = 0;
+
+    for (uint32_t i = 2; i < cluster_count; i++) {
+        uint32_t entry = fat[i];
+        if (entry == 0) {
+            free_cluster = i;
+            break;
+        }
+    }
+
+    free(fat_buffer);
+    return free_cluster;
+}
+
+void create_dot_entries(uint32_t new_cluster, uint32_t parent_cluster) {
+    uint32_t cluster_size = BootBlock.BPB_BytsPerSec * BootBlock.BPB_SecPerClus;
+    uint8_t *buffer = malloc(cluster_size);
+    if (!buffer) {
+        perror("Memory allocation failed");
+        return;
+    }
+    memset(buffer, 0, cluster_size); // Clear the buffer
+
+    dentry_t dot_entry, dot_dot_entry;
+    memset(&dot_entry, 0, sizeof(dentry_t));
+    memset(&dot_dot_entry, 0, sizeof(dentry_t));
+
+    // Create the "." entry
+    strncpy(dot_entry.DIR_Name, ".          ", 11);
+    dot_entry.DIR_Attr = 0x10;
+    dot_entry.DIR_FstClusLO = new_cluster & 0xFFFF;
+    dot_entry.DIR_FstClusHI = (new_cluster >> 16) & 0xFFFF;
+
+    // Create the ".." entry
+    strncpy(dot_dot_entry.DIR_Name, "..         ", 11);
+    dot_dot_entry.DIR_Attr = 0x10;
+    dot_dot_entry.DIR_FstClusLO = parent_cluster & 0xFFFF;
+    dot_dot_entry.DIR_FstClusHI = (parent_cluster >> 16) & 0xFFFF;
+
+    // Write the "." and ".." entries to the new directory cluster
+    memcpy(buffer, &dot_entry, sizeof(dentry_t));
+    memcpy(buffer + sizeof(dentry_t), &dot_dot_entry, sizeof(dentry_t));
+
+    uint32_t first_sector_of_cluster = ((new_cluster - 2) * BootBlock.BPB_SecPerClus) + (BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32));
+    fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
+    fwrite(buffer, cluster_size, 1, imgFile);
+
+    free(buffer);
+}
+
 void create_directory(const char *dirname) {
     if (check_exists(dirname)) {
         printf("Error: Directory '%s' already exists.\n", dirname);
@@ -297,8 +361,17 @@ void create_directory(const char *dirname) {
     snprintf(new_dir_entry.DIR_Name, 11, "%.11s", dirname);
     new_dir_entry.DIR_Attr = 0x10; // Directory attribute
     new_dir_entry.DIR_FstClusHI = 0;
-    new_dir_entry.DIR_FstClusLO = 0;
+    new_dir_entry.DIR_FstClusLO = 0; // Cluster number will be assigned later
     new_dir_entry.DIR_FileSize = 0;
+
+    // Find the first available cluster for the new directory
+    uint32_t new_cluster = find_free_cluster();
+    if (new_cluster == 0) {
+        printf("Error: No free clusters available to create the directory.\n");
+        return;
+    }
+    new_dir_entry.DIR_FstClusLO = new_cluster & 0xFFFF;
+    new_dir_entry.DIR_FstClusHI = (new_cluster >> 16) & 0xFFFF;
 
     // Write the new directory entry to the current directory cluster
     uint32_t cluster_size;
@@ -307,9 +380,8 @@ void create_directory(const char *dirname) {
         return; // Error handling in the read_current_directory_cluster function
     }
 
-    // Find the first available slot in the current directory cluster
     dentry_t *entry = NULL;
-    for (int i = 0; i < (int) cluster_size; i += sizeof(dentry_t)) {
+    for (int i = 0; i < (int)cluster_size; i += sizeof(dentry_t)) {
         entry = (dentry_t *)(buffer + i);
         if (entry->DIR_Name[0] == 0x00 || (unsigned char)entry->DIR_Name[0] == 0xE5) {
             memcpy(entry, &new_dir_entry, sizeof(dentry_t));
@@ -317,16 +389,16 @@ void create_directory(const char *dirname) {
         }
     }
 
-    // Write back the modified buffer to the image file
     uint32_t first_sector_of_cluster = ((current_cluster - 2) * BootBlock.BPB_SecPerClus) + (BootBlock.BPB_RsvdSecCnt + (BootBlock.BPB_NumFATs * BootBlock.BPB_FATSz32));
     fseek(imgFile, first_sector_of_cluster * BootBlock.BPB_BytsPerSec, SEEK_SET);
     fwrite(buffer, cluster_size, 1, imgFile);
-
     free(buffer);
+
+    // Create the "." and ".." entries in the new directory cluster
+    create_dot_entries(new_cluster,current_cluster);
 
     printf("Directory '%s' created successfully.\n", dirname);
 }
-
 // Create a new file with the given name
 void create_file(const char *filename) {
     if (check_exists(filename)) {
@@ -594,35 +666,6 @@ void read_file(char *input){
 
 // ============================================================================
 // ============================================================================
-
-uint32_t find_free_cluster() {
-    uint32_t fat_offset = BootBlock.BPB_RsvdSecCnt * BootBlock.BPB_BytsPerSec;
-    uint32_t fat_size = BootBlock.BPB_FATSz32 * BootBlock.BPB_BytsPerSec;
-    uint32_t cluster_count = BootBlock.BPB_TotSec32 / BootBlock.BPB_SecPerClus;
-
-    uint8_t *fat_buffer = malloc(fat_size);
-    if (fat_buffer == NULL) {
-        perror("Memory allocation failed");
-        return 0;
-    }
-
-    fseek(imgFile, fat_offset, SEEK_SET);
-    fread(fat_buffer, fat_size, 1, imgFile);
-
-    uint32_t *fat = (uint32_t *)fat_buffer;
-    uint32_t free_cluster = 0;
-
-    for (uint32_t i = 2; i < cluster_count; i++) {
-        uint32_t entry = fat[i];
-        if (entry == 0) {
-            free_cluster = i;
-            break;
-        }
-    }
-
-    free(fat_buffer);
-    return free_cluster;
-}
 
 void extend_file(dentry_t *entry, uint32_t new_file_size) {
     uint32_t current_size = entry->DIR_FileSize;
