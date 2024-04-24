@@ -53,4 +53,6 @@ Assigned to: Maverick Haghighat Schiller, Trent Fetzer
 4. Test the program by using commands: `info, cd, ls, mkdir, creat, open, close, lsof, lseek, read, write, rm, rmdir, exit`
 
 ## Bugs
-- There is a small bug that occurs when trying to move up a directory using `cd ..`. This error may reside in the FAT32 file rather than the code's logic.
+- There is a small bug that occurs when trying to move up a directory using `cd ..`. This error may reside in the FAT32 file rather than the code's logic as it does not occur on newly created directories.
+- Occasional errors with `extend_file()` or `find_free_cluster()` functions. Unsure of error's souce.
+- Spaghetti code: write only works on pre-existing files when commenting out sp `open_files[file_index].file_pos = new_file_size`.
