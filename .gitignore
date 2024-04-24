@@ -7,3 +7,4 @@ filesys
 src/output.txt
 src/test
 src/test.c
+src/fat32.img
