@@ -208,6 +208,7 @@ void change_directory(const char* dirname) {
                 *last_slash = '\0';
             } else {
                 *(last_slash + 1) = '\0';  // Stay at the root
+				current_cluster = BootBlock.BPB_RootClus;
             }
         } else {
             // Append new directory to path
@@ -413,9 +414,19 @@ void create_file(const char *filename) {
 
     snprintf(new_file_entry.DIR_Name, 11, "%.11s", filename);
     new_file_entry.DIR_Attr = 0x00; // File attribute
-    new_file_entry.DIR_FstClusHI = 0;
+    new_file_entry.DIR_FstClusHI = 0;//++++++Change these values++++++++ 
     new_file_entry.DIR_FstClusLO = 0;
     new_file_entry.DIR_FileSize = 0;
+
+	//++++++++ find free cluster +++++++ look at read directory
+	// Find the first available cluster for the new directory
+    uint32_t new_cluster = find_free_cluster();
+    if (new_cluster == 0) {
+        printf("Error: No free clusters available to create the file.\n");
+        return;
+    }
+    new_file_entry.DIR_FstClusLO = new_cluster & 0xFFFF;
+    new_file_entry.DIR_FstClusHI = (new_cluster >> 16) & 0xFFFF;
 
     // Write the new file entry to the current directory cluster
     uint32_t cluster_size;
